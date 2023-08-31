@@ -1,8 +1,10 @@
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::{prelude::World, system::Resource};
+use futures_util::FutureExt;
 use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use futures_util::future::RemoteHandle;
 
 /// An internal struct keeping track of how many ticks have elapsed since the start of the program.
 #[derive(Resource)]
@@ -74,6 +76,27 @@ struct WASMTasksRuntimeInner {
     update_run_rx: tokio::sync::mpsc::UnboundedReceiver<MainThreadCallback>,
 }
 
+pub struct JoinHandle<T> {
+    handle: Option<RemoteHandle<T>>,
+}
+
+impl <T> JoinHandle<T> {
+    pub fn take(&mut self) -> Option<RemoteHandle<T>> {
+        self.handle.take()
+    }
+}
+
+impl<T> Drop for JoinHandle<T> {
+    /// To match Tokio behavior and make it easier to handle throwaway tasks,
+    /// if a JoinHandle is dropped without the inner RemoteHandle being taken,
+    /// we simply forget it so that it's able to continue to completion.
+    fn drop(&mut self) {
+        if let Some(handle) = self.take() {
+            handle.forget();
+        }
+    }
+}
+
 impl WASMTasksRuntime {
     fn new(ticks: Arc<AtomicUsize>, update_watch_rx: tokio::sync::watch::Receiver<()>) -> Self {
         let (update_run_tx, update_run_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -89,9 +112,9 @@ impl WASMTasksRuntime {
     /// Spawn a task which will run using WASM futures. The background task is provided a
     /// [`TaskContext`] which allows it to do things like [sleep for a given number of main thread updates](TaskContext::sleep_updates)
     /// or [invoke callbacks on the main Bevy thread](TaskContext::run_on_main_thread).
-    pub fn spawn_background_task<Task, Spawnable>(&self, spawnable_task: Spawnable)
+    pub fn spawn_background_task<Task, Output, Spawnable>(&self, spawnable_task: Spawnable) -> JoinHandle<Output>
     where
-        Task: Future<Output = ()> + 'static,
+        Task: Future<Output = Output> + 'static,
         Spawnable: FnOnce(TaskContext) -> Task + 'static,
     {
         let inner = &self.0;
@@ -101,7 +124,11 @@ impl WASMTasksRuntime {
             update_run_tx: inner.update_run_tx.clone(),
         };
         let future = spawnable_task(context);
+        let (future, handle) = future.remote_handle();
         wasm_bindgen_futures::spawn_local(future);
+        JoinHandle {
+            handle: Some(handle),
+        }
     }
 
     /// Execute all of the requested runnables on the main thread.
