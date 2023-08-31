@@ -1,62 +1,39 @@
-# bevy-tokio-tasks
+# bevy-wasm-tasks
 
-A simple Bevy plugin which integrates a Tokio runtime into a Bevy app.
+A simple Bevy plugin which integrates the running of futures (including !Send futures) on WASM via wasm_bindgen_futures into a Bevy app.
 
-[![crates.io](https://img.shields.io/crates/v/bevy-tokio-tasks)](https://crates.io/crates/bevy-tokio-tasks) [![docs.rs](https://img.shields.io/docsrs/bevy-tokio-tasks)](https://docs.rs/bevy-tokio-tasks/latest/bevy_tokio_tasks/)
+This code is almost entirely based on the excellent [bevy-tokio-tasks](https://github.com/EkardNT/bevy-tokio-tasks), just adapted for wasm_bindgen_futures.
+
+[![crates.io](https://img.shields.io/crates/v/bevy-wasm-tasks)](https://crates.io/crates/bevy-wasm-tasks) [![docs.rs](https://img.shields.io/docsrs/bevy-wasm-tasks)](https://docs.rs/bevy-wasm-tasks/latest/bevy_wasm_tasks/)
 
 ## How To
 
 ### How to initialize this plugin
 
-To initialize the plugin, simply install the `TokioTasksPlugin` when initializing your Bevy app. The simplest
-way to do this is to use the `TokioTasksPlugin::default()` method, which sets up a Tokio `Runtime` with default
-settings (the plugin calls `Runtime::enable_all` to enable Tokio's IO and timing functionality).
-
-```rust
-fn main() {
-    bevy::App::new()
-        .add_plugins(bevy_tokio_tasks::TokioTasksPlugin::default())
-}
-```
-
-If you want to customize the Tokio `Runtime` setup, you may do so by specifying a `make_runtime` callback on the `TokioTasksPlugin`.
-
-```rust
-fn main() {
-    bevy::App::new()
-        .add_plugins(bevy_tokio_tasks::TokioTasksPlugin {
-            make_runtime: Box::new(|| {
-                let mut runtime = tokio::runtime::Builder::new_multi_thread();
-                runtime.enable_all();
-                runtime.build().unwrap()
-            }),
-            ..bevy_tokio_tasks::TokioTasksPlugin::default()
-        })
-}
-```
+To initialize the plugin, simply install the `WASMTasksPlugin` when initializing your Bevy app.
 
 ### How to spawn a background task
 
-To spawn a background task from a Bevy system function, add a `TokioTasksRuntime` as a resource parameter and call
+To spawn a background task from a Bevy system function, add a `WASMTasksRuntime` as a resource parameter and call
 the `spawn_background_task` function.
 
 ```rust
-fn example_system(runtime: ResMut<TokioTasksRuntime>) {
+fn example_system(runtime: ResMut<WASMTasksRuntime>) {
     runtime.spawn_background_task(|_ctx| async move {
-        println!("This task is running on a background thread");
+        log::info!("This task is running in a WASM future");
     });
 }
 ```
 
-### How to synchronize with the main thread
+### How to synchronize with Bevy
 
 Often times, background tasks will need to synchronize with the main Bevy app at certain points. You may do this
 by calling the `run_on_main_thread` function on the `TaskContext` that is passed to each background task.
 
 ```rust
-fn example_system(runtime: ResMut<TokioTasksRuntime>) {
+fn example_system(runtime: ResMut<WASMTasksRuntime>) {
     runtime.spawn_background_task(|mut ctx| async move {
-        println!("This print executes from a background Tokio runtime thread");
+        log::info!("This print executes from a background WASM future");
         ctx.run_on_main_thread(move |ctx| {
             // The inner context gives access to a mutable Bevy World reference.
             let _world: &mut World = ctx.world;
@@ -64,19 +41,6 @@ fn example_system(runtime: ResMut<TokioTasksRuntime>) {
     });
 }
 ```
-
-## Examples
-
-- [change_clear_color](examples/change_clear_color.rs) - This example spawns a background task which
-runs forever. Every second, the background task updates the app's background clear color. This demonstrates
-how background tasks can synchronize with the main thread to update game state.
-- [current_thread_runtime](examples/current_thread_runtime.rs) - This
-example demonstrates how you can customize the Tokio Runtime. It configures a
-current_thread Runtime instead of a multi-threading Runtime.
-- [async_fn](examples/async_fn.rs) - Does the same thing as the change_clear_color example,
-except that it shows how you can pass an `async fn` to `spawn_background_task`.
-- [shutdown_after_sleep](examples/shutdown_after_sleep.rs) - This example spawns a background task which
-sleeps for 120 Bevy game updates, then shuts down the Bevy app.
 
 ## Version Compatibility
 

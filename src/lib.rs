@@ -1,11 +1,8 @@
+use bevy_app::{App, Plugin, Update};
+use bevy_ecs::{prelude::World, system::Resource};
 use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-
-use bevy_app::{App, Plugin, Update};
-use bevy_ecs::{prelude::World, system::Resource};
-
-use tokio::{runtime::Runtime, task::JoinHandle};
 
 /// An internal struct keeping track of how many ticks have elapsed since the start of the program.
 #[derive(Resource)]
@@ -24,46 +21,19 @@ impl UpdateTicks {
     }
 }
 
-/// The Bevy [`Plugin`] which sets up the [`TokioTasksRuntime`] Bevy resource and registers
+/// The Bevy [`Plugin`] which sets up the [`WASMTasksRuntime`] Bevy resource and registers
 /// the [`tick_runtime_update`] exclusive system.
-pub struct TokioTasksPlugin {
-    /// Callback which is used to create a Tokio runtime when the plugin is installed. The
-    /// default value for this field configures a multi-threaded [`Runtime`] with IO and timer
-    /// functionality enabled if building for non-wasm32 architectures. On wasm32 the current-thread
-    /// scheduler is used instead.
-    pub make_runtime: Box<dyn Fn() -> Runtime + Send + Sync + 'static>,
-}
+pub struct WASMTasksPlugin;
 
-impl Default for TokioTasksPlugin {
-    /// Configures the plugin to build a new Tokio [`Runtime`] with both IO and timer functionality
-    /// enabled. On the wasm32 architecture, the [`Runtime`] will be the current-thread runtime, on all other
-    /// architectures the [`Runtime`] will be the multi-thread runtime.
-    fn default() -> Self {
-        Self {
-            make_runtime: Box::new(|| {
-                #[cfg(not(target_arch = "wasm32"))]
-                let mut runtime = tokio::runtime::Builder::new_multi_thread();
-                #[cfg(target_arch = "wasm32")]
-                let mut runtime = tokio::runtime::Builder::new_current_thread();
-                runtime.enable_all();
-                runtime
-                    .build()
-                    .expect("Failed to create Tokio runtime for background tasks")
-            }),
-        }
-    }
-}
-
-impl Plugin for TokioTasksPlugin {
+impl Plugin for WASMTasksPlugin {
     fn build(&self, app: &mut App) {
         let ticks = Arc::new(AtomicUsize::new(0));
         let (update_watch_tx, update_watch_rx) = tokio::sync::watch::channel(());
-        let runtime = (self.make_runtime)();
         app.insert_resource(UpdateTicks {
             ticks: ticks.clone(),
             update_watch_tx,
         });
-        app.insert_resource(TokioTasksRuntime::new(ticks, runtime, update_watch_rx));
+        app.insert_resource(WASMTasksRuntime::new(ticks, update_watch_rx));
         app.add_systems(Update, tick_runtime_update);
     }
 }
@@ -71,7 +41,7 @@ impl Plugin for TokioTasksPlugin {
 /// The Bevy exclusive system which executes the main thread callbacks that background
 /// tasks requested using [`run_on_main_thread`](TaskContext::run_on_main_thread). You
 /// can control which [`CoreStage`] this system executes in by specifying a custom
-/// [`tick_stage`](TokioTasksPlugin::tick_stage) value.
+/// [`tick_stage`](WASMTasksPlugin::tick_stage) value.
 pub fn tick_runtime_update(world: &mut World) {
     let current_tick = {
         let tick_counter = match world.get_resource::<UpdateTicks>() {
@@ -83,7 +53,7 @@ pub fn tick_runtime_update(world: &mut World) {
         tick_counter.increment_ticks()
     };
 
-    if let Some(mut runtime) = world.remove_resource::<TokioTasksRuntime>() {
+    if let Some(mut runtime) = world.remove_resource::<WASMTasksRuntime>() {
         runtime.execute_main_thread_work(world, current_tick);
         world.insert_resource(runtime);
     }
@@ -91,31 +61,24 @@ pub fn tick_runtime_update(world: &mut World) {
 
 type MainThreadCallback = Box<dyn FnOnce(MainThreadContext) + Send + 'static>;
 
-/// The Bevy [`Resource`] which stores the Tokio [`Runtime`] and allows for spawning new
-/// background tasks.
+/// The Bevy [`Resource`] which allows for spawning new background tasks.
 #[derive(Resource)]
-pub struct TokioTasksRuntime(Box<TokioTasksRuntimeInner>);
+pub struct WASMTasksRuntime(Box<WASMTasksRuntimeInner>);
 
 /// The inner fields are boxed to reduce the cost of the every-frame move out of and back into
 /// the world in [`tick_runtime_update`].
-struct TokioTasksRuntimeInner {
-    runtime: Runtime,
+struct WASMTasksRuntimeInner {
     ticks: Arc<AtomicUsize>,
     update_watch_rx: tokio::sync::watch::Receiver<()>,
     update_run_tx: tokio::sync::mpsc::UnboundedSender<MainThreadCallback>,
     update_run_rx: tokio::sync::mpsc::UnboundedReceiver<MainThreadCallback>,
 }
 
-impl TokioTasksRuntime {
-    fn new(
-        ticks: Arc<AtomicUsize>,
-        runtime: Runtime,
-        update_watch_rx: tokio::sync::watch::Receiver<()>,
-    ) -> Self {
+impl WASMTasksRuntime {
+    fn new(ticks: Arc<AtomicUsize>, update_watch_rx: tokio::sync::watch::Receiver<()>) -> Self {
         let (update_run_tx, update_run_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        Self(Box::new(TokioTasksRuntimeInner {
-            runtime,
+        Self(Box::new(WASMTasksRuntimeInner {
             ticks,
             update_watch_rx,
             update_run_tx,
@@ -123,24 +86,13 @@ impl TokioTasksRuntime {
         }))
     }
 
-    /// Returns the Tokio [`Runtime`] on which background tasks are executed. You can specify
-    /// how this is created by providing a custom [`make_runtime`](TokioTasksPlugin::make_runtime).
-    pub fn runtime(&self) -> &Runtime {
-        &self.0.runtime
-    }
-
-    /// Spawn a task which will run on the background Tokio [`Runtime`] managed by this [`TokioTasksRuntime`]. The
-    /// background task is provided a [`TaskContext`] which allows it to do things like
-    /// [sleep for a given number of main thread updates](TaskContext::sleep_updates) or
-    /// [invoke callbacks on the main Bevy thread](TaskContext::run_on_main_thread).
-    pub fn spawn_background_task<Task, Output, Spawnable>(
-        &self,
-        spawnable_task: Spawnable,
-    ) -> JoinHandle<Output>
+    /// Spawn a task which will run using WASM futures. The background task is provided a
+    /// [`TaskContext`] which allows it to do things like [sleep for a given number of main thread updates](TaskContext::sleep_updates)
+    /// or [invoke callbacks on the main Bevy thread](TaskContext::run_on_main_thread).
+    pub fn spawn_background_task<Task, Spawnable>(&self, spawnable_task: Spawnable)
     where
-        Task: Future<Output = Output> + Send + 'static,
-        Output: Send + 'static,
-        Spawnable: FnOnce(TaskContext) -> Task + Send + 'static,
+        Task: Future<Output = ()> + 'static,
+        Spawnable: FnOnce(TaskContext) -> Task + 'static,
     {
         let inner = &self.0;
         let context = TaskContext {
@@ -149,17 +101,11 @@ impl TokioTasksRuntime {
             update_run_tx: inner.update_run_tx.clone(),
         };
         let future = spawnable_task(context);
-        inner.runtime.spawn(future)
+        wasm_bindgen_futures::spawn_local(future);
     }
 
     /// Execute all of the requested runnables on the main thread.
     pub(crate) fn execute_main_thread_work(&mut self, world: &mut World, current_tick: usize) {
-        // Running this single future which yields once allows the runtime to process tasks
-        // if the runtime is a current_thread runtime. If its a multi-thread runtime then
-        // this isn't necessary but is harmless.
-        self.0.runtime.block_on(async {
-            tokio::task::yield_now().await;
-        });
         while let Ok(runnable) = self.0.update_run_rx.try_recv() {
             let context = MainThreadContext {
                 world,
@@ -180,7 +126,7 @@ pub struct MainThreadContext<'a> {
 }
 
 /// The context arguments which are available to background tasks spawned onto the
-/// [`TokioTasksRuntime`].
+/// [`WASMTasksRuntime`].
 #[derive(Clone)]
 pub struct TaskContext {
     update_watch_rx: tokio::sync::watch::Receiver<()>,
@@ -197,7 +143,7 @@ impl TaskContext {
     }
 
     /// Sleeps the background task until a given number of main thread updates have occurred. If
-    /// you instead want to sleep for a given length of wall-clock time, call the normal Tokio sleep
+    /// you instead want to sleep for a given length of wall-clock time, sleep using wasmtimer or similar
     /// function.
     pub async fn sleep_updates(&mut self, updates_to_sleep: usize) {
         let target_tick = self
@@ -233,3 +179,4 @@ impl TaskContext {
             .expect("Failed to receive output from operation on main thread")
     }
 }
+
