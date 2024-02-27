@@ -1,10 +1,10 @@
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::{prelude::World, system::Resource};
+use futures_util::future::RemoteHandle;
 use futures_util::FutureExt;
 use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use futures_util::future::RemoteHandle;
 
 /// An internal struct keeping track of how many ticks have elapsed since the start of the program.
 #[derive(Resource)]
@@ -80,7 +80,7 @@ pub struct JoinHandle<T> {
     handle: Option<RemoteHandle<T>>,
 }
 
-impl <T> JoinHandle<T> {
+impl<T> JoinHandle<T> {
     pub fn take(&mut self) -> Option<RemoteHandle<T>> {
         self.handle.take()
     }
@@ -112,7 +112,10 @@ impl WASMTasksRuntime {
     /// Spawn a task which will run using WASM futures. The background task is provided a
     /// [`TaskContext`] which allows it to do things like [sleep for a given number of main thread updates](TaskContext::sleep_updates)
     /// or [invoke callbacks on the main Bevy thread](TaskContext::run_on_main_thread).
-    pub fn spawn_background_task<Task, Output, Spawnable>(&self, spawnable_task: Spawnable) -> JoinHandle<Output>
+    pub fn spawn_background_task<Task, Output, Spawnable>(
+        &self,
+        spawnable_task: Spawnable,
+    ) -> JoinHandle<Output>
     where
         Task: Future<Output = Output> + 'static,
         Spawnable: FnOnce(TaskContext) -> Task + 'static,
@@ -206,4 +209,3 @@ impl TaskContext {
             .expect("Failed to receive output from operation on main thread")
     }
 }
-
