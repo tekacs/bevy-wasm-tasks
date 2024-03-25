@@ -27,9 +27,7 @@ impl UpdateTicks {
 
     fn increment_ticks(&self) -> usize {
         let new_ticks = self.ticks.fetch_add(1, Ordering::SeqCst).wrapping_add(1);
-        self.tick_tx
-            .send(())
-            .expect("Failed to send update_watch channel message");
+        let _ = self.tick_tx.send(());
         new_ticks
     }
 }
