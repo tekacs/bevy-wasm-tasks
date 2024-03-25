@@ -11,6 +11,7 @@ keywords = ["gamedev", "bevy", "wasm", "async", "plugin"]
 categories = ["game-development", "asynchronous"]
 
 [features]
+default = []
 tokio = ["tokio/full"]
 wasm = ["wasm-bindgen-futures"]
 

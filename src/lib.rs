@@ -3,13 +3,13 @@ use bevy_ecs::{
     prelude::World,
     system::{Res, SystemParam},
 };
-use context::task::TaskContext;
-use futures_util::FutureExt;
-use join::JoinHandle;
-use runtime::{Runtime, TasksRuntime};
-use std::{future::Future, sync::Arc};
+use std::future::Future;
 use task_channels::TaskChannels;
 use ticks::{TicksPlugin, UpdateTicks};
+
+pub use context::task::TaskContext;
+pub use join::JoinHandle;
+pub use runtime::Runtime;
 
 pub mod context;
 pub mod join;
@@ -17,14 +17,9 @@ pub mod runtime;
 pub mod task_channels;
 pub mod ticks;
 
-#[cfg(all(feature = "wasm", feature = "tokio"))]
-compile_error!(
-    "The `wasm` and `tokio` features are mutually exclusive. Please enable only one of them."
-);
-
 #[derive(SystemParam)]
 pub struct Tasks<'w> {
-    runtime: Res<'w, TasksRuntime>,
+    runtime: Res<'w, Runtime>,
     task_channels: Res<'w, TaskChannels>,
     ticks: Res<'w, UpdateTicks>,
 }
@@ -32,10 +27,6 @@ pub struct Tasks<'w> {
 impl<'w> Tasks<'w> {
     pub fn runtime(&self) -> &Runtime {
         &self.runtime
-    }
-
-    pub fn runtime_arc(&self) -> Arc<Runtime> {
-        self.runtime.clone()
     }
 
     #[inline(always)]
@@ -62,9 +53,8 @@ impl<'w> Tasks<'w> {
     {
         let context = self.task_context();
         let future = spawnable_task(context);
-        let (future, handle) = future.remote_handle();
-        self.runtime.0.spawn(future);
-        JoinHandle::new(handle)
+        let handle = self.runtime.0.spawn(future);
+        JoinHandle { handle }
     }
 
     /// Spawn a task which will run using futures. The background task is provided a
@@ -79,22 +69,25 @@ impl<'w> Tasks<'w> {
         Task: Future<Output = Output> + 'static,
         Spawnable: FnOnce(TaskContext) -> Task + 'static,
     {
+        use futures_util::FutureExt;
         let context = self.task_context();
         let future = spawnable_task(context);
         let (future, handle) = future.remote_handle();
         wasm_bindgen_futures::spawn_local(future);
-        JoinHandle::new(handle)
+        JoinHandle {
+            handle: Some(handle),
+        }
     }
 }
 
-/// The Bevy [`Plugin`] which sets up the [`TasksRuntime`] Bevy resource and registers
+/// The Bevy [`Plugin`] which sets up the [`Runtime`] Bevy resource and registers
 /// the [`tick_runtime_update`] exclusive system.
 pub struct TasksPlugin {
     /// Callback which is used to create a Tokio runtime when the plugin is installed. The
     /// default value for this field configures a multi-threaded [`Runtime`] with IO and timer
     /// functionality enabled if building for non-wasm32 architectures. On wasm32 the current-thread
     /// scheduler is used instead.
-    make_runtime: Box<dyn Fn() -> Arc<Runtime> + Send + Sync + 'static>,
+    make_runtime: Box<dyn Fn() -> Runtime + Send + Sync + 'static>,
 }
 
 impl Default for TasksPlugin {
@@ -103,7 +96,7 @@ impl Default for TasksPlugin {
     /// architectures the [`Runtime`] will be the multi-thread runtime.
     fn default() -> Self {
         Self {
-            make_runtime: Box::new(|| Arc::new(Runtime::default())),
+            make_runtime: Box::new(Runtime::default),
         }
     }
 }
@@ -125,7 +118,7 @@ impl Plugin for TasksPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(TicksPlugin)
             .init_resource::<TaskChannels>()
-            .insert_resource(TasksRuntime::new((self.make_runtime)()))
+            .insert_resource((self.make_runtime)())
             .add_systems(Update, Self::run_tasks);
     }
 }
