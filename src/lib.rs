@@ -17,6 +17,11 @@ pub mod runtime;
 pub mod task_channels;
 pub mod ticks;
 
+#[cfg(all(feature = "wasm", feature = "tokio"))]
+compile_error!(
+    "The `wasm` and `tokio` features are mutually exclusive. Please enable only one of them."
+);
+
 #[derive(SystemParam)]
 pub struct Tasks<'w> {
     runtime: Res<'w, TasksRuntime>,
@@ -65,7 +70,7 @@ impl<'w> Tasks<'w> {
     /// Spawn a task which will run using futures. The background task is provided a
     /// [`TaskContext`] which allows it to do things like [sleep for a given number of main thread updates](TaskContext::sleep_updates)
     /// or [invoke callbacks on the main Bevy thread](TaskContext::run_on_main_thread).
-    #[cfg(not(feature = "tokio"))]
+    #[cfg(all(feature = "wasm", not(feature = "tokio")))]
     pub fn spawn_background_task<Task, Output, Spawnable>(
         &self,
         spawnable_task: Spawnable,
