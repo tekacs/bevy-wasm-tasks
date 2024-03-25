@@ -10,6 +10,9 @@ repository = "https://github.com/tekacs/bevy-wasm-tasks"
 keywords = ["gamedev", "bevy", "wasm", "async", "plugin"]
 categories = ["game-development", "asynchronous"]
 
+[features]
+tokio = ["tokio/full"]
+
 [dependencies]
 bevy_app = "0.13.0"
 bevy_ecs = "0.13.0"
