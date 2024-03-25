@@ -13,11 +13,11 @@ categories = ["game-development", "asynchronous"]
 [features]
 default = []
 tokio = ["tokio/full"]
-wasm = ["wasm-bindgen-futures"]
+wasm = []
 
 [dependencies]
 bevy_app = "0.13.0"
 bevy_ecs = "0.13.0"
 futures-util = { version = "0.3", features = ["channel"] }
 tokio = { version = "1", features = ["sync"] }
-wasm-bindgen-futures = { version = "0.4.41", optional = true }
+wasm-bindgen-futures = { version = "0.4.41" }
