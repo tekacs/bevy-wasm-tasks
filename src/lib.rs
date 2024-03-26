@@ -1,12 +1,15 @@
-use bevy_app::{App, Plugin, Update};
+use bevy_app::{App, Plugin};
 use bevy_ecs::{
     prelude::World,
+    schedule::{ScheduleLabel, Schedules},
     system::{Res, SystemParam},
 };
+use context::main_thread::MainThreadContext;
 use std::future::Future;
 use task_channels::TaskChannels;
 use ticks::{TicksPlugin, UpdateTicks};
 
+pub use context::main_thread::MainThreadRunConfiguration;
 pub use context::task::TaskContext;
 pub use join::JoinHandle;
 pub use runtime::Runtime;
@@ -33,7 +36,7 @@ impl<'w> Tasks<'w> {
     pub fn task_context(&self) -> TaskContext {
         TaskContext {
             tick_rx: self.ticks.tick_rx(),
-            task_tx: self.task_channels.task_tx(),
+            task_channels: self.task_channels.clone(),
             ticks: self.ticks.ticks(),
         }
     }
@@ -141,11 +144,20 @@ impl TasksPlugin {
     /// tasks requested using [`run_on_main_thread`](TaskContext::run_on_main_thread). You
     /// can control which [`CoreStage`] this system executes in by specifying a custom
     /// [`tick_stage`](TasksPlugin::tick_stage) value.
-    pub fn run_tasks(world: &mut World) {
-        let current_tick = world.get_resource::<UpdateTicks>().unwrap().tick();
-        world.resource_scope::<TaskChannels, _>(|world, mut task_channels| {
-            task_channels.execute_main_thread_work(world, current_tick);
-        });
+    pub fn run_tasks(schedule: impl ScheduleLabel) -> impl Fn(&mut World) {
+        let schedule = schedule.intern();
+        move |world: &mut World| {
+            let current_tick = world.get_resource::<UpdateTicks>().unwrap().tick();
+            world.resource_scope::<TaskChannels, _>(|world, task_channels| {
+                while let Some(runnable) = task_channels.try_recv(schedule) {
+                    let context = MainThreadContext {
+                        world,
+                        current_tick,
+                    };
+                    runnable(context);
+                }
+            });
+        }
     }
 }
 
@@ -153,7 +165,17 @@ impl Plugin for TasksPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(TicksPlugin)
             .init_resource::<TaskChannels>()
-            .insert_resource((self.make_runtime)())
-            .add_systems(Update, Self::run_tasks);
+            .insert_resource((self.make_runtime)());
+
+        let schedules = app
+            .world
+            .get_resource::<Schedules>()
+            .unwrap()
+            .iter()
+            .map(|(_, schedule)| schedule.label())
+            .collect::<Vec<_>>();
+        for label in schedules {
+            app.add_systems(label, Self::run_tasks(label));
+        }
     }
 }

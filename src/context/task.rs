@@ -1,4 +1,6 @@
-use super::main_thread::{MainThreadCallback, MainThreadContext};
+use crate::task_channels::TaskChannels;
+
+use super::main_thread::{MainThreadContext, MainThreadRunConfiguration};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -7,7 +9,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct TaskContext {
     pub tick_rx: tokio::sync::watch::Receiver<()>,
-    pub task_tx: tokio::sync::mpsc::UnboundedSender<MainThreadCallback>,
+    pub task_channels: TaskChannels,
     pub ticks: Arc<AtomicUsize>,
 }
 
@@ -38,21 +40,42 @@ impl TaskContext {
     /// main Bevy [`World`], allowing it to update any resources or entities that it wants. The callback can
     /// report results back to the background thread by returning an output value, which will then be returned from
     /// this async function once the callback runs.
-    pub async fn run_on_main_thread<Runnable, Output>(&mut self, runnable: Runnable) -> Output
+    pub async fn run_on_main_thread_with_config<Runnable, Output>(
+        &mut self,
+        runnable: Runnable,
+        config: MainThreadRunConfiguration,
+    ) -> Output
     where
         Runnable: FnOnce(MainThreadContext) -> Output + Send + 'static,
         Output: Send + 'static,
     {
         let (output_tx, output_rx) = tokio::sync::oneshot::channel();
-        if self.task_tx.send(Box::new(move |ctx| {
-            if output_tx.send(runnable(ctx)).is_err() {
-                panic!("Failed to send output from operation run on main thread back to waiting task");
+        if self.task_channels.submit(config.schedule,
+            move |ctx| {
+                if output_tx.send(runnable(ctx)).is_err() {
+                    panic!(
+                        "Failed to send output from operation run on main thread back to waiting task"
+                    );
+                }
             }
-        })).is_err() {
+        ).is_err() {
             panic!("Failed to send operation to be run on main thread");
         }
         output_rx
             .await
             .expect("Failed to receive output from operation on main thread")
+    }
+
+    /// Invokes a synchronous callback on the main Bevy thread. The callback will have mutable access to the
+    /// main Bevy [`World`], allowing it to update any resources or entities that it wants. The callback can
+    /// report results back to the background thread by returning an output value, which will then be returned from
+    /// this async function once the callback runs.
+    pub async fn run_on_main_thread<Runnable, Output>(&mut self, runnable: Runnable) -> Output
+    where
+        Runnable: FnOnce(MainThreadContext) -> Output + Send + 'static,
+        Output: Send + 'static,
+    {
+        self.run_on_main_thread_with_config(runnable, Default::default())
+            .await
     }
 }
