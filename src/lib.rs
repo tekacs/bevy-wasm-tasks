@@ -58,16 +58,13 @@ impl<'w> Tasks<'w> {
     }
 
     #[cfg(not(feature = "tokio"))]
-    pub fn spawn_tokio<Task, Output, Spawnable>(
-        &self,
-        _spawnable_task: Spawnable,
-    ) -> JoinHandle<Output>
+    fn spawn_tokio<Task, Output, Spawnable>(&self, _spawnable_task: Spawnable) -> JoinHandle<Output>
     where
         Task: Future<Output = Output> + Send + 'static,
         Output: Send + 'static,
         Spawnable: FnOnce(TaskContext) -> Task + Send + 'static,
     {
-        panic!("Tokio runtime is not enabled. Enable the `tokio` feature to use Tokio.");
+        unreachable!("This function is private when the `tokio` feature is not enabled and should be uncallable.");
     }
 
     /// Spawn a task which will run using futures. The background task is provided a
@@ -91,15 +88,12 @@ impl<'w> Tasks<'w> {
     }
 
     #[cfg(not(feature = "wasm"))]
-    pub fn spawn_wasm<Task, Output, Spawnable>(
-        &self,
-        _spawnable_task: Spawnable,
-    ) -> JoinHandle<Output>
+    fn spawn_wasm<Task, Output, Spawnable>(&self, _spawnable_task: Spawnable) -> JoinHandle<Output>
     where
         Task: Future<Output = Output> + 'static,
         Spawnable: FnOnce(TaskContext) -> Task + 'static,
     {
-        panic!("Wasm runtime is not enabled. Enable the `wasm` feature to use Wasm.");
+        unreachable!("This function is private when the `wasm` feature is not enabled and should be uncallable.");
     }
 
     pub fn spawn_auto<Task, Output, Spawnable>(
