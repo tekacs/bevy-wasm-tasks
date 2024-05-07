@@ -13,7 +13,7 @@ categories = ["game-development", "asynchronous"]
 [features]
 default = []
 tokio = ["tokio/full"]
-wasm = []
+wasm = ["tokio/rt"]
 
 [dependencies]
 bevy_app = "0.13.0"
