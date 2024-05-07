@@ -4,7 +4,7 @@ use bevy_app::{
 use bevy_ecs::{
     prelude::World,
     schedule::{InternedScheduleLabel, ScheduleLabel},
-    system::{Res, SystemParam},
+    system::{Res, SystemParam, SystemState},
 };
 use context::main_thread::MainThreadContext;
 use std::future::Future;
@@ -180,6 +180,12 @@ impl Plugin for TasksPlugin {
         app.add_plugins(TicksPlugin)
             .init_resource::<TaskChannels>()
             .insert_resource((self.make_runtime)());
+
+        let mut system = SystemState::<Tasks>::new(&mut app.world);
+        let tasks = system.get(&app.world);
+        let task_context = tasks.task_context();
+        drop(system);
+        app.insert_resource(task_context);
 
         for label in self.schedules.clone().into_iter() {
             app.add_systems(label, Self::run_tasks(label));

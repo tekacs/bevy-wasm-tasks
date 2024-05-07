@@ -1,12 +1,12 @@
-use crate::task_channels::TaskChannels;
-
 use super::main_thread::{MainThreadContext, MainThreadRunConfiguration};
+use crate::task_channels::TaskChannels;
+use bevy_ecs::system::Resource;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 /// The context arguments which are available to background tasks spawned onto the
 /// [`TasksRuntime`].
-#[derive(Clone)]
+#[derive(Resource, Clone)]
 pub struct TaskContext {
     pub tick_rx: tokio::sync::watch::Receiver<()>,
     pub task_channels: TaskChannels,
