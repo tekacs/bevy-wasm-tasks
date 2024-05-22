@@ -54,7 +54,7 @@ impl<'w> Tasks<'w> {
     where
         Task: Future<Output = Output> + Send + 'static,
         Output: Send + 'static,
-        Spawnable: FnOnce(TaskContext) -> Task,
+        Spawnable: FnOnce(TaskContext) -> Task + 'static,
     {
         let context = self.task_context();
         let future = spawnable_task(context);
@@ -67,7 +67,7 @@ impl<'w> Tasks<'w> {
     where
         Task: Future<Output = Output> + Send + 'static,
         Output: Send + 'static,
-        Spawnable: FnOnce(TaskContext) -> Task,
+        Spawnable: FnOnce(TaskContext) -> Task + 'static,
     {
         unreachable!("This function is private when the `tokio` feature is not enabled and should be uncallable.");
     }
@@ -82,7 +82,7 @@ impl<'w> Tasks<'w> {
     ) -> JoinHandle<Output>
     where
         Task: Future<Output = Output> + 'static,
-        Spawnable: FnOnce(TaskContext) -> Task,
+        Spawnable: FnOnce(TaskContext) -> Task + 'static,
     {
         use futures_util::FutureExt;
         let context = self.task_context();
@@ -108,7 +108,7 @@ impl<'w> Tasks<'w> {
     where
         Task: Future<Output = Output> + Send + 'static,
         Output: Send + 'static,
-        Spawnable: FnOnce(TaskContext) -> Task,
+        Spawnable: FnOnce(TaskContext) -> Task + 'static,
     {
         if cfg!(feature = "tokio") {
             self.spawn_tokio(spawnable_task)
