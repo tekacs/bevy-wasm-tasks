@@ -41,7 +41,7 @@ impl TaskContext {
     /// report results back to the background thread by returning an output value, which will then be returned from
     /// this async function once the callback runs.
     pub async fn run_on_main_thread_with_config<Runnable, Output>(
-        &mut self,
+        &self,
         runnable: Runnable,
         config: MainThreadRunConfiguration,
     ) -> Output
@@ -70,7 +70,7 @@ impl TaskContext {
     /// main Bevy [`World`], allowing it to update any resources or entities that it wants. The callback can
     /// report results back to the background thread by returning an output value, which will then be returned from
     /// this async function once the callback runs.
-    pub async fn run_on_main_thread<Runnable, Output>(&mut self, runnable: Runnable) -> Output
+    pub async fn run_on_main_thread<Runnable, Output>(&self, runnable: Runnable) -> Output
     where
         Runnable: FnOnce(MainThreadContext) -> Output + Send + 'static,
         Output: Send + 'static,
