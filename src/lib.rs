@@ -181,8 +181,8 @@ impl Plugin for TasksPlugin {
             .init_resource::<TaskChannels>()
             .insert_resource((self.make_runtime)());
 
-        let mut system = SystemState::<Tasks>::new(&mut app.world);
-        let tasks = system.get(&app.world);
+        let mut system = SystemState::<Tasks>::new(app.world_mut());
+        let tasks = system.get(app.world());
         let task_context = tasks.task_context();
         drop(system);
         app.insert_resource(task_context);
