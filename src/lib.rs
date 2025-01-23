@@ -162,15 +162,14 @@ impl TasksPlugin {
         let schedule = schedule.intern();
         move |world: &mut World| {
             let current_tick = world.get_resource::<UpdateTicks>().unwrap().tick();
-            world.resource_scope::<TaskChannels, _>(|world, task_channels| {
-                while let Some(runnable) = task_channels.try_recv(schedule) {
-                    let context = MainThreadContext {
-                        world,
-                        current_tick,
-                    };
-                    runnable(context);
-                }
-            });
+            let task_channels = world.get_resource::<TaskChannels>().unwrap().clone();
+            while let Some(runnable) = task_channels.try_recv(schedule) {
+                let context = MainThreadContext {
+                    world,
+                    current_tick,
+                };
+                runnable(context);
+            }
         }
     }
 }
