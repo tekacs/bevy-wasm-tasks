@@ -3,6 +3,7 @@ use crate::task_channels::TaskChannels;
 use bevy_ecs::system::Resource;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use tokio::sync::oneshot::Receiver;
 
 /// The context arguments which are available to background tasks spawned onto the
 /// [`TasksRuntime`].
@@ -34,6 +35,45 @@ impl TaskContext {
                 return;
             }
         }
+    }
+
+    /// Invokes a synchronous callback on the main Bevy thread. The callback will have mutable access to the
+    /// main Bevy [`World`], allowing it to update any resources or entities that it wants. The callback can
+    /// report results back to the background thread by returning an output value, which will then be returned from
+    /// this async function once the callback runs.
+    pub fn submit_on_main_thread_with_config<Runnable, Output>(
+        &self,
+        runnable: Runnable,
+        config: MainThreadRunConfiguration,
+    ) -> Receiver<Output>
+    where
+        Runnable: FnOnce(MainThreadContext) -> Output + Send + 'static,
+        Output: Send + 'static,
+    {
+        let (output_tx, output_rx) = tokio::sync::oneshot::channel();
+        if self
+            .task_channels
+            .submit(config.schedule, move |ctx| {
+                // Allow the sender to drop the output receipt channel.
+                let _ = output_tx.send(runnable(ctx));
+            })
+            .is_err()
+        {
+            panic!("Failed to send operation to be run on main thread");
+        }
+        output_rx
+    }
+
+    /// Invokes a synchronous callback on the main Bevy thread. The callback will have mutable access to the
+    /// main Bevy [`World`], allowing it to update any resources or entities that it wants. The callback can
+    /// report results back to the background thread by returning an output value, which will be returned on
+    /// the output channel returned from this function.
+    pub fn submit_on_main_thread<Runnable, Output>(&self, runnable: Runnable) -> Receiver<Output>
+    where
+        Runnable: FnOnce(MainThreadContext) -> Output + Send + 'static,
+        Output: Send + 'static,
+    {
+        self.submit_on_main_thread_with_config(runnable, Default::default())
     }
 
     /// Invokes a synchronous callback on the main Bevy thread. The callback will have mutable access to the
