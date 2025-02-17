@@ -1,9 +1,9 @@
 use super::main_thread::{MainThreadContext, MainThreadRunConfiguration};
 use crate::task_channels::TaskChannels;
 use bevy_ecs::system::Resource;
+use flume::Receiver;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use tokio::sync::oneshot::Receiver;
 
 /// The context arguments which are available to background tasks spawned onto the
 /// [`TasksRuntime`].
@@ -50,7 +50,7 @@ impl TaskContext {
         Runnable: FnOnce(MainThreadContext) -> Output + Send + 'static,
         Output: Send + 'static,
     {
-        let (output_tx, output_rx) = tokio::sync::oneshot::channel();
+        let (output_tx, output_rx) = flume::bounded(1);
         if self
             .task_channels
             .submit(config.schedule, move |ctx| {

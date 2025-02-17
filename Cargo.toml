@@ -19,6 +19,7 @@ wasm = ["tokio/rt"]
 bevy_app = "0.14.0"
 bevy_ecs = "0.14.0"
 dashmap = "5.5.3"
+flume = "0.11.1"
 futures-util = { version = "0.3", features = ["channel"] }
 tokio = { version = "1", features = ["sync"] }
 wasm-bindgen-futures = { version = "0.4.41" }
