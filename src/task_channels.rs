@@ -1,5 +1,5 @@
 use crate::context::main_thread::{MainThreadCallback, MainThreadContext};
-use bevy_ecs::{schedule::InternedScheduleLabel, system::Resource};
+use bevy_ecs::{schedule::InternedScheduleLabel, resource::Resource};
 use dashmap::DashMap;
 use std::sync::Arc;
 

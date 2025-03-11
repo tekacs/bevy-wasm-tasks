@@ -16,8 +16,8 @@ tokio = ["tokio/full"]
 wasm = ["tokio/rt"]
 
 [dependencies]
-bevy_app = ">= 0.15.3"
-bevy_ecs = ">= 0.15.3"
+bevy_app = { git = "https://github.com/bevyengine/bevy", rev = "949d7811cd75b54ffaf1de6ea55a3c62d072d2d8" }
+bevy_ecs = { git = "https://github.com/bevyengine/bevy", rev = "949d7811cd75b54ffaf1de6ea55a3c62d072d2d8" }
 dashmap = "5.5.3"
 flume = "0.11.1"
 futures-util = { version = "0.3", features = ["channel"] }

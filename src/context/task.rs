@@ -1,6 +1,6 @@
 use super::main_thread::{MainThreadContext, MainThreadRunConfiguration};
 use crate::task_channels::TaskChannels;
-use bevy_ecs::system::Resource;
+use bevy_ecs::resource::Resource;
 use flume::Receiver;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
