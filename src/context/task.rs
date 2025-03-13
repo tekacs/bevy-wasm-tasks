@@ -25,13 +25,14 @@ impl TaskContext {
     /// Sleeps the background task until a given number of main thread updates have occurred. If
     /// you instead want to sleep for a given length of wall-clock time, sleep using tokio sleep or similar.
     /// function.
-    pub async fn sleep_updates(&mut self, updates_to_sleep: usize) {
+    pub async fn sleep_updates(&self, updates_to_sleep: usize) {
+        let mut tick_rx = self.tick_rx.clone();
         let target_tick = self
             .ticks
             .load(Ordering::SeqCst)
             .wrapping_add(updates_to_sleep);
         while self.ticks.load(Ordering::SeqCst) < target_tick {
-            if self.tick_rx.changed().await.is_err() {
+            if tick_rx.changed().await.is_err() {
                 return;
             }
         }
