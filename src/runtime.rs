@@ -1,4 +1,4 @@
-use bevy_ecs::system::Resource;
+use bevy_ecs::prelude::Resource;
 
 #[cfg(feature = "tokio")]
 use std::{future::Future, sync::Arc};
