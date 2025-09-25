@@ -81,42 +81,44 @@ impl TaskContext {
     /// main Bevy [`World`], allowing it to update any resources or entities that it wants. The callback can
     /// report results back to the background thread by returning an output value, which will then be returned from
     /// this async function once the callback runs.
-    pub async fn run_on_main_thread_with_config<Runnable, Output>(
+    pub fn run_on_main_thread_with_config<Runnable, Output>(
         &self,
         runnable: Runnable,
         config: MainThreadRunConfiguration,
-    ) -> Output
+    ) -> impl core::future::Future<Output = Output> + Send + 'static + use<Runnable, Output>
     where
         Runnable: FnOnce(MainThreadContext) -> Output + Send + 'static,
         Output: Send + 'static,
     {
         let (output_tx, output_rx) = tokio::sync::oneshot::channel();
-        if self.task_channels.submit(config.schedule,
-            move |ctx| {
-                if output_tx.send(runnable(ctx)).is_err() {
-                    panic!(
-                        "Failed to send output from operation run on main thread back to waiting task"
-                    );
-                }
-            }
-        ).is_err() {
+        if self
+            .task_channels
+            .submit(config.schedule, move |ctx| {
+                let _ = output_tx.send(runnable(ctx));
+            })
+            .is_err()
+        {
             panic!("Failed to send operation to be run on main thread");
         }
-        output_rx
-            .await
-            .expect("Failed to receive output from operation on main thread")
+        async move {
+            output_rx
+                .await
+                .expect("Failed to receive output from operation on main thread")
+        }
     }
 
     /// Invokes a synchronous callback on the main Bevy thread. The callback will have mutable access to the
     /// main Bevy [`World`], allowing it to update any resources or entities that it wants. The callback can
     /// report results back to the background thread by returning an output value, which will then be returned from
     /// this async function once the callback runs.
-    pub async fn run_on_main_thread<Runnable, Output>(&self, runnable: Runnable) -> Output
+    pub fn run_on_main_thread<Runnable, Output>(
+        &self,
+        runnable: Runnable,
+    ) -> impl core::future::Future<Output = Output> + Send + 'static + use<Runnable, Output>
     where
         Runnable: FnOnce(MainThreadContext) -> Output + Send + 'static,
         Output: Send + 'static,
     {
         self.run_on_main_thread_with_config(runnable, Default::default())
-            .await
     }
 }
