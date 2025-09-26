@@ -57,8 +57,22 @@ impl<'w> Tasks<'w> {
         Spawnable: FnOnce(TaskContext) -> Task + 'static,
     {
         let context = self.task_context();
-        let future = spawnable_task(context);
-        let handle = self.runtime.0.spawn(future);
+
+        // Build the future first, using a precise-capture RPIT to avoid leaking
+        // extra generics/lifetimes to the caller in Rust 2024.
+        #[inline(always)]
+        fn build<Fut, Output>(
+            fut: Fut,
+        ) -> impl Future<Output = Output> + Send + 'static + use<Output, Fut>
+        where
+            Fut: Future<Output = Output> + Send + 'static,
+        {
+            async move { fut.await }
+        }
+
+        let user_future = spawnable_task(context);
+        let wrapper = build::<_, Output>(user_future);
+        let handle = self.runtime.0.spawn(wrapper);
         JoinHandle::Tokio(handle)
     }
 
@@ -86,9 +100,21 @@ impl<'w> Tasks<'w> {
     {
         use futures_util::FutureExt;
         let context = self.task_context();
-        let future = spawnable_task(context);
-        let (future, handle) = future.remote_handle();
-        wasm_bindgen_futures::spawn_local(future);
+
+        #[inline(always)]
+        fn build<Fut, Output>(
+            fut: Fut,
+        ) -> impl Future<Output = Output> + 'static + use<Output, Fut>
+        where
+            Fut: Future<Output = Output> + 'static,
+        {
+            async move { fut.await }
+        }
+
+        let user_future = spawnable_task(context);
+        let wrapper = build::<_, Output>(user_future);
+        let (wrapper, handle) = wrapper.remote_handle();
+        wasm_bindgen_futures::spawn_local(wrapper);
         JoinHandle::RemoteHandle(Some(handle))
     }
 
