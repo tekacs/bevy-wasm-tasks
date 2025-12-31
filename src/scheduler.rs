@@ -1,5 +1,6 @@
 use crate::{TaskContext, Tasks};
 use bevy_ecs::{
+    error::BevyError,
     prelude::World,
     system::{Commands, ResMut, SystemName, SystemParam, SystemState},
 };
@@ -29,6 +30,7 @@ struct AsyncState {
     in_flight: bool,
     pending: bool,
     last_start: Option<Instant>,
+    last_error: Option<BevyError>,
 }
 
 #[derive(Default, bevy_ecs::resource::Resource)]
@@ -53,29 +55,33 @@ pub struct Scheduler<'w, 's> {
 }
 
 impl<'w, 's> Scheduler<'w, 's> {
-    pub fn async_system<P, F, Fut>(&mut self, run: Run, f: F)
+    pub fn async_system<P, F, Fut>(&mut self, run: Run, f: F) -> bevy_ecs::error::Result<(), BevyError>
     where
         P: SystemParam + 'static,
         for<'pw, 'ps> F: FnOnce(TaskContext, P::Item<'pw, 'ps>) -> Fut + Send + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
+        Fut: Future<Output = bevy_ecs::error::Result<(), BevyError>> + Send + 'static,
     {
         let key = self.system_name.name().to_string();
         let state = self.async_systems.states.entry(key.clone()).or_default();
 
+        if let Some(err) = state.last_error.take() {
+            return Err(err);
+        }
+
         match run {
             Run::AsOftenAsPossible => {
                 if state.in_flight {
-                    return;
+                    return Ok(());
                 }
                 state.in_flight = true;
             }
             Run::MaxRate(period) => {
                 if state.in_flight {
-                    return;
+                    return Ok(());
                 }
                 if let Some(last_start) = state.last_start {
                     if last_start.elapsed() < period {
-                        return;
+                        return Ok(());
                     }
                 }
                 state.in_flight = true;
@@ -86,10 +92,10 @@ impl<'w, 's> Scheduler<'w, 's> {
                     state.pending = true;
                 }
                 if state.in_flight {
-                    return;
+                    return Ok(());
                 }
                 if !state.pending {
-                    return;
+                    return Ok(());
                 }
                 state.in_flight = true;
                 state.pending = false;
@@ -115,17 +121,21 @@ impl<'w, 's> Scheduler<'w, 's> {
             let tasks = state.get(world);
             let task_context = tasks.task_context();
             let _handle = tasks.spawn_auto(move |_| async move {
-                user_future.await;
+                let result = user_future.await;
                 task_context
                     .run_on_main_thread(move |mt| {
                         let mut systems = mt.world.resource_mut::<AsyncSystems>();
                         let state = systems.states.entry(completion_key).or_default();
                         state.in_flight = false;
+                        if let Err(err) = result {
+                            state.last_error = Some(err);
+                        }
                         let _ = completion_run;
                     })
                     .await;
             });
             state.apply(world);
         });
+        Ok(())
     }
 }
