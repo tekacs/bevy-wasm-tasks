@@ -1,8 +1,8 @@
 use bevy_app::{App, Last, Plugin};
 use bevy_ecs::{resource::Resource, system::ResMut};
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
     Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 
 /// A struct keeping track of how many ticks have elapsed since the start of the program.

@@ -2,8 +2,8 @@ use super::main_thread::{MainThreadContext, MainThreadRunConfiguration};
 use crate::task_channels::TaskChannels;
 use bevy_ecs::resource::Resource;
 use flume::Receiver;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// The context arguments which are available to background tasks spawned onto the
 /// [`TasksRuntime`].
