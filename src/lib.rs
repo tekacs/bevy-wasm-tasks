@@ -15,10 +15,12 @@ pub use context::main_thread::MainThreadRunConfiguration;
 pub use context::task::TaskContext;
 pub use join::JoinHandle;
 pub use runtime::Runtime;
+pub use scheduler::{Run, Scheduler};
 
 pub mod context;
 pub mod join;
 pub mod runtime;
+pub mod scheduler;
 pub mod task_channels;
 pub mod ticks;
 
@@ -83,7 +85,9 @@ impl<'w> Tasks<'w> {
         Output: Send + 'static,
         Spawnable: FnOnce(TaskContext) -> Task + 'static,
     {
-        unreachable!("This function is private when the `tokio` feature is not enabled and should be uncallable.");
+        unreachable!(
+            "This function is private when the `tokio` feature is not enabled and should be uncallable."
+        );
     }
 
     /// Spawn a task which will run using futures. The background task is provided a
@@ -102,9 +106,7 @@ impl<'w> Tasks<'w> {
         let context = self.task_context();
 
         #[inline(always)]
-        fn build<Fut, Output>(
-            fut: Fut,
-        ) -> impl Future<Output = Output> + 'static + use<Output, Fut>
+        fn build<Fut, Output>(fut: Fut) -> impl Future<Output = Output> + 'static + use<Output, Fut>
         where
             Fut: Future<Output = Output> + 'static,
         {
@@ -124,7 +126,9 @@ impl<'w> Tasks<'w> {
         Task: Future<Output = Output> + 'static,
         Spawnable: FnOnce(TaskContext) -> Task + 'static,
     {
-        unreachable!("This function is private when the `wasm` feature is not enabled and should be uncallable.");
+        unreachable!(
+            "This function is private when the `wasm` feature is not enabled and should be uncallable."
+        );
     }
 
     pub fn spawn_auto<Task, Output, Spawnable>(
@@ -203,6 +207,7 @@ impl TasksPlugin {
 impl Plugin for TasksPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(TicksPlugin)
+            .init_resource::<scheduler::AsyncSystems>()
             .init_resource::<TaskChannels>()
             .insert_resource((self.make_runtime)());
 
