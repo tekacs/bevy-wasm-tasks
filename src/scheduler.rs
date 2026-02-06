@@ -51,7 +51,7 @@ pub struct Scheduler<'w, 's> {
     tasks: Tasks<'w>,
     commands: Commands<'w, 's>,
     async_systems: ResMut<'w, AsyncSystems>,
-    system_name: SystemName<'s>,
+    system_name: SystemName,
 }
 
 impl<'w, 's> Scheduler<'w, 's> {
