@@ -1,5 +1,14 @@
 [toolchain]
-channel = "nightly-2025-03-10"
+channel = "nightly-2026-01-01"
 components = ["rust-analyzer", "miri"]
-targets = ["wasm32-unknown-unknown", "aarch64-apple-darwin", "x86_64-unknown-linux-gnu"]
+targets = [
+  "wasm32-unknown-unknown",
+  "aarch64-apple-darwin",
+  "x86_64-unknown-linux-gnu",
+  "x86_64-unknown-linux-musl",
+  "aarch64-apple-ios",
+  "aarch64-apple-ios-sim",
+  "x86_64-pc-windows-gnu",
+  "x86_64-pc-windows-msvc",
+]
 profile = "default"

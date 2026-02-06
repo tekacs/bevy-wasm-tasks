@@ -5,6 +5,7 @@ use bevy_ecs::{
     system::{Commands, ResMut, SystemName, SystemParam, SystemState},
 };
 use std::{
+    any::TypeId,
     collections::HashMap,
     future::Future,
     time::{Duration, Instant},
@@ -33,9 +34,15 @@ struct AsyncState {
     last_error: Option<BevyError>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct AsyncSystemKey {
+    system_name: String,
+    closure_type_id: TypeId,
+}
+
 #[derive(Default, bevy_ecs::resource::Resource)]
 pub(crate) struct AsyncSystems {
-    states: HashMap<String, AsyncState>,
+    states: HashMap<AsyncSystemKey, AsyncState>,
 }
 
 /// Command-based scheduler for async "systems".
@@ -43,8 +50,8 @@ pub(crate) struct AsyncSystems {
 /// This defers SystemParam acquisition + setup work to the end of the current schedule,
 /// then spawns the returned `'static` future onto the background runtime.
 ///
-/// Keying is based on the current system name (`SystemName`), which is assumed to be unique
-/// for each system that calls into this API.
+/// Keying combines the current system name (`SystemName`) with the closure type used at the
+/// callsite. `SystemName` alone is not a reliable unique identifier in Bevy 0.18.
 #[derive(SystemParam)]
 pub struct Scheduler<'w, 's> {
     #[allow(dead_code)]
@@ -55,13 +62,20 @@ pub struct Scheduler<'w, 's> {
 }
 
 impl<'w, 's> Scheduler<'w, 's> {
-    pub fn async_system<P, F, Fut>(&mut self, run: Run, f: F) -> bevy_ecs::error::Result<(), BevyError>
+    pub fn async_system<P, F, Fut>(
+        &mut self,
+        run: Run,
+        f: F,
+    ) -> bevy_ecs::error::Result<(), BevyError>
     where
         P: SystemParam + 'static,
         for<'pw, 'ps> F: FnOnce(TaskContext, P::Item<'pw, 'ps>) -> Fut + Send + 'static,
         Fut: Future<Output = bevy_ecs::error::Result<(), BevyError>> + Send + 'static,
     {
-        let key = self.system_name.name().to_string();
+        let key = AsyncSystemKey {
+            system_name: self.system_name.name().to_string(),
+            closure_type_id: TypeId::of::<F>(),
+        };
         let state = self.async_systems.states.entry(key.clone()).or_default();
 
         if let Some(err) = state.last_error.take() {
@@ -114,7 +128,7 @@ impl<'w, 's> Scheduler<'w, 's> {
                 fut
             };
 
-            let completion_key = key.clone();
+            let completion_key = key;
             let completion_run = run;
 
             let mut state = SystemState::<Tasks>::new(world);
