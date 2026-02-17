@@ -15,3 +15,11 @@ system param acquisition + setup to the end of the current Bevy schedule by enqu
 The `Run::OnChange { triggered }` mode treats `triggered == true` as "schedule a run". If the job is
 already in-flight, it schedules exactly one follow-up run after completion (coalesced). If
 `triggered` later becomes false, the follow-up run remains scheduled.
+
+Run modes:
+
+- `Run::AsOftenAsPossible`: coalescing fire-asap behavior.
+- `Run::MaxRate(duration)`: coalescing fire-asap with rate limit.
+- `Run::OnChange { triggered }`: edge-triggered with one queued rerun.
+- `Run::Once`: execute once and never schedule again.
+- `Run::Daemon`: restart on the next tick whenever the task exits; exit/error is printed to stderr.

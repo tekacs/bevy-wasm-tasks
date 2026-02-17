@@ -4,10 +4,12 @@ use bevy_ecs::{
     prelude::World,
     system::{Commands, ResMut, SystemName, SystemParam, SystemState},
 };
+use futures_util::FutureExt;
 use std::{
-    any::TypeId,
+    any::{Any, TypeId},
     collections::HashMap,
     future::Future,
+    panic::AssertUnwindSafe,
     time::{Duration, Instant},
 };
 
@@ -15,6 +17,13 @@ use std::{
 pub enum Run {
     AsOftenAsPossible,
     MaxRate(Duration),
+    /// Run exactly once for this callsite and never schedule again.
+    Once,
+    /// Run continuously as a daemon.
+    ///
+    /// If the task returns `Ok(())` or `Err(_)`, it is restarted on the next schedule tick.
+    /// Exits are logged to stderr.
+    Daemon,
     /// Change-triggered scheduling.
     ///
     /// If `triggered` is true, the async work is scheduled to run as soon as possible.
@@ -30,6 +39,7 @@ pub enum Run {
 struct AsyncState {
     in_flight: bool,
     pending: bool,
+    ran_once: bool,
     last_start: Option<Instant>,
     last_error: Option<BevyError>,
 }
@@ -101,6 +111,22 @@ impl<'w, 's> Scheduler<'w, 's> {
                 state.in_flight = true;
                 state.last_start = Some(Instant::now());
             }
+            Run::Once => {
+                if state.ran_once {
+                    return Ok(());
+                }
+                if state.in_flight {
+                    return Ok(());
+                }
+                state.in_flight = true;
+                state.ran_once = true;
+            }
+            Run::Daemon => {
+                if state.in_flight {
+                    return Ok(());
+                }
+                state.in_flight = true;
+            }
             Run::OnChange { triggered } => {
                 if triggered {
                     state.pending = true;
@@ -129,22 +155,51 @@ impl<'w, 's> Scheduler<'w, 's> {
             };
 
             let completion_key = key;
+            let completion_system_name = completion_key.system_name.clone();
             let completion_run = run;
 
             let mut state = SystemState::<Tasks>::new(world);
             let tasks = state.get(world);
             let task_context = tasks.task_context();
             let _handle = tasks.spawn_auto(move |_| async move {
-                let result = user_future.await;
+                let daemon_mode = matches!(completion_run, Run::Daemon);
+                let result = if daemon_mode {
+                    match AssertUnwindSafe(user_future).catch_unwind().await {
+                        Ok(result) => Ok(result),
+                        Err(payload) => Err(DaemonCompletion::Panicked(payload_to_string(payload))),
+                    }
+                } else {
+                    Ok(user_future.await)
+                };
+                if daemon_mode {
+                    task_context.sleep_updates(1).await;
+                }
                 task_context
                     .run_on_main_thread(move |mt| {
                         let mut systems = mt.world.resource_mut::<AsyncSystems>();
                         let state = systems.states.entry(completion_key).or_default();
                         state.in_flight = false;
-                        if let Err(err) = result {
-                            state.last_error = Some(err);
+                        match completion_run {
+                            Run::Daemon => match result {
+                                Ok(Ok(())) => eprintln!(
+                                    "[bevy-wasm-tasks] async daemon '{}' exited cleanly; restarting",
+                                    completion_system_name
+                                ),
+                                Ok(Err(err)) => eprintln!(
+                                    "[bevy-wasm-tasks] async daemon '{}' exited with error: {err}; restarting",
+                                    completion_system_name
+                                ),
+                                Err(DaemonCompletion::Panicked(message)) => eprintln!(
+                                    "[bevy-wasm-tasks] async daemon '{}' panicked: {}; restarting",
+                                    completion_system_name, message
+                                ),
+                            },
+                            _ => {
+                                if let Ok(Err(err)) = result {
+                                    state.last_error = Some(err);
+                                }
+                            }
                         }
-                        let _ = completion_run;
                     })
                     .await;
             });
@@ -152,4 +207,18 @@ impl<'w, 's> Scheduler<'w, 's> {
         });
         Ok(())
     }
+}
+
+fn payload_to_string(payload: Box<dyn Any + Send>) -> String {
+    if let Some(message) = payload.downcast_ref::<&'static str>() {
+        (*message).to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "unknown panic payload".to_string()
+    }
+}
+
+enum DaemonCompletion {
+    Panicked(String),
 }
