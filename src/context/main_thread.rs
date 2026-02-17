@@ -1,7 +1,7 @@
 use bevy_app::{First, Last, PostUpdate, PreUpdate, Update};
 use bevy_ecs::{
     schedule::{InternedScheduleLabel, ScheduleLabel},
-    system::{SystemParam, SystemState},
+    system::{IntoSystem, System},
     world::World,
 };
 
@@ -51,7 +51,7 @@ impl MainThreadRunConfiguration {
 }
 
 /// The context arguments which are available to main thread callbacks requested using
-/// [`run_on_main_thread`](TaskContext::run_on_main_thread).
+/// [`run`](TaskContext::run).
 pub struct MainThreadContext<'a> {
     /// A mutable reference to the main Bevy [World].
     pub world: &'a mut World,
@@ -60,16 +60,15 @@ pub struct MainThreadContext<'a> {
 }
 
 impl<'a> MainThreadContext<'a> {
-    pub fn run<P, F, Output>(&mut self, f: F) -> Output
+    /// Runs a Bevy system directly on the main thread with no explicit generic arguments.
+    pub fn run<Marker, S, Output>(&mut self, system: S) -> Output
     where
-        P: SystemParam + 'static,
-        F: FnOnce(P::Item<'_, '_>) -> Output,
-        Output: Send + 'static,
+        S: IntoSystem<(), Output, Marker>,
     {
-        let mut state = SystemState::<P>::new(self.world);
-        let data = state.get_mut(self.world);
-        let output = f(data);
-        state.apply(self.world);
-        output
+        let mut system = IntoSystem::into_system(system);
+        system.initialize(self.world);
+        system
+            .run((), self.world)
+            .expect("Failed to run system on main thread")
     }
 }

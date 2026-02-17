@@ -174,9 +174,15 @@ impl<'w, 's> Scheduler<'w, 's> {
                 if daemon_mode {
                     task_context.sleep_updates(1).await;
                 }
+                let mut result = Some(result);
                 task_context
-                    .run_on_main_thread(move |mt| {
-                        let mut systems = mt.world.resource_mut::<AsyncSystems>();
+                    .run(move |world: &mut World| {
+                        let result = result
+                            .take()
+                            .expect("scheduler completion callback should run once");
+                        let completion_key = completion_key.clone();
+                        let completion_system_name = completion_system_name.clone();
+                        let mut systems = world.resource_mut::<AsyncSystems>();
                         let state = systems.states.entry(completion_key).or_default();
                         state.in_flight = false;
                         match completion_run {

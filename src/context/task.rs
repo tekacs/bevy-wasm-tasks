@@ -1,6 +1,6 @@
 use super::main_thread::{MainThreadContext, MainThreadRunConfiguration};
 use crate::task_channels::TaskChannels;
-use bevy_ecs::resource::Resource;
+use bevy_ecs::{resource::Resource, system::IntoSystem};
 use flume::Receiver;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -77,24 +77,24 @@ impl TaskContext {
         self.submit_on_main_thread_with_config(runnable, Default::default())
     }
 
-    /// Invokes a synchronous callback on the main Bevy thread. The callback will have mutable access to the
-    /// main Bevy [`World`], allowing it to update any resources or entities that it wants. The callback can
-    /// report results back to the background thread by returning an output value, which will then be returned from
-    /// this async function once the callback runs.
-    pub fn run_on_main_thread_with_config<Runnable, Output>(
+    /// Runs a Bevy system on the main thread and awaits its output.
+    ///
+    /// By default this runs in the `Update` schedule; use
+    /// [`MainThreadRunConfiguration`] to target a different schedule.
+    pub fn run_with_config<Marker, S, Output>(
         &self,
-        runnable: Runnable,
+        system: S,
         config: MainThreadRunConfiguration,
-    ) -> impl core::future::Future<Output = Output> + Send + 'static + use<Runnable, Output>
+    ) -> impl core::future::Future<Output = Output> + Send + 'static + use<Marker, S, Output>
     where
-        Runnable: FnOnce(MainThreadContext) -> Output + Send + 'static,
+        S: IntoSystem<(), Output, Marker> + Send + 'static,
         Output: Send + 'static,
     {
         let (output_tx, output_rx) = tokio::sync::oneshot::channel();
         if self
             .task_channels
-            .submit(config.schedule, move |ctx| {
-                let _ = output_tx.send(runnable(ctx));
+            .submit(config.schedule, move |mut ctx| {
+                let _ = output_tx.send(ctx.run(system));
             })
             .is_err()
         {
@@ -107,18 +107,15 @@ impl TaskContext {
         }
     }
 
-    /// Invokes a synchronous callback on the main Bevy thread. The callback will have mutable access to the
-    /// main Bevy [`World`], allowing it to update any resources or entities that it wants. The callback can
-    /// report results back to the background thread by returning an output value, which will then be returned from
-    /// this async function once the callback runs.
-    pub fn run_on_main_thread<Runnable, Output>(
+    /// Runs a Bevy system on the main thread and awaits its output.
+    pub fn run<Marker, S, Output>(
         &self,
-        runnable: Runnable,
-    ) -> impl core::future::Future<Output = Output> + Send + 'static + use<Runnable, Output>
+        system: S,
+    ) -> impl core::future::Future<Output = Output> + Send + 'static + use<Marker, S, Output>
     where
-        Runnable: FnOnce(MainThreadContext) -> Output + Send + 'static,
+        S: IntoSystem<(), Output, Marker> + Send + 'static,
         Output: Send + 'static,
     {
-        self.run_on_main_thread_with_config(runnable, Default::default())
+        self.run_with_config(system, Default::default())
     }
 }

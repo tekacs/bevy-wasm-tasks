@@ -18,10 +18,8 @@ struct ProbeCounts {
 fn probe_a(mut scheduler: Scheduler) -> Result<(), BevyError> {
     scheduler.async_system::<(), _, _>(Run::AsOftenAsPossible, |ctx, _| async move {
         tokio::time::sleep(Duration::from_millis(25)).await;
-        ctx.run_on_main_thread(|mut mt| {
-            mt.run::<ResMut<ProbeCounts>, _, _>(|mut counts| {
-                counts.a += 1;
-            });
+        ctx.run(|mut counts: ResMut<ProbeCounts>| {
+            counts.a += 1;
         })
         .await;
         Ok(())
@@ -31,10 +29,8 @@ fn probe_a(mut scheduler: Scheduler) -> Result<(), BevyError> {
 fn probe_b(mut scheduler: Scheduler) -> Result<(), BevyError> {
     scheduler.async_system::<(), _, _>(Run::AsOftenAsPossible, |ctx, _| async move {
         tokio::time::sleep(Duration::from_millis(25)).await;
-        ctx.run_on_main_thread(|mut mt| {
-            mt.run::<ResMut<ProbeCounts>, _, _>(|mut counts| {
-                counts.b += 1;
-            });
+        ctx.run(|mut counts: ResMut<ProbeCounts>| {
+            counts.b += 1;
         })
         .await;
         Ok(())
@@ -43,10 +39,8 @@ fn probe_b(mut scheduler: Scheduler) -> Result<(), BevyError> {
 
 fn probe_once(mut scheduler: Scheduler) -> Result<(), BevyError> {
     scheduler.async_system::<(), _, _>(Run::Once, |ctx, _| async move {
-        ctx.run_on_main_thread(|mut mt| {
-            mt.run::<ResMut<ProbeCounts>, _, _>(|mut counts| {
-                counts.once += 1;
-            });
+        ctx.run(|mut counts: ResMut<ProbeCounts>| {
+            counts.once += 1;
         })
         .await;
         Ok(())
@@ -55,10 +49,8 @@ fn probe_once(mut scheduler: Scheduler) -> Result<(), BevyError> {
 
 fn probe_daemon(mut scheduler: Scheduler) -> Result<(), BevyError> {
     scheduler.async_system::<(), _, _>(Run::Daemon, |ctx, _| async move {
-        ctx.run_on_main_thread(|mut mt| {
-            mt.run::<ResMut<ProbeCounts>, _, _>(|mut counts| {
-                counts.daemon += 1;
-            });
+        ctx.run(|mut counts: ResMut<ProbeCounts>| {
+            counts.daemon += 1;
         })
         .await;
         Ok(())

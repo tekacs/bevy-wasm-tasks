@@ -47,7 +47,7 @@ impl<'w> Tasks<'w> {
 
     /// Spawn a task which will run using futures. The background task is provided a
     /// [`TaskContext`] which allows it to do things like [sleep for a given number of main thread updates](TaskContext::sleep_updates)
-    /// or [invoke callbacks on the main Bevy thread](TaskContext::run_on_main_thread).
+    /// or [invoke callbacks on the main Bevy thread](TaskContext::run).
     #[cfg(feature = "tokio")]
     pub fn spawn_tokio<Task, Output, Spawnable>(
         &self,
@@ -92,7 +92,7 @@ impl<'w> Tasks<'w> {
 
     /// Spawn a task which will run using futures. The background task is provided a
     /// [`TaskContext`] which allows it to do things like [sleep for a given number of main thread updates](TaskContext::sleep_updates)
-    /// or [invoke callbacks on the main Bevy thread](TaskContext::run_on_main_thread).
+    /// or [invoke callbacks on the main Bevy thread](TaskContext::run).
     #[cfg(feature = "wasm")]
     pub fn spawn_wasm<Task, Output, Spawnable>(
         &self,
@@ -185,7 +185,7 @@ impl Default for TasksPlugin {
 
 impl TasksPlugin {
     /// The Bevy exclusive system which executes the main thread callbacks that background
-    /// tasks requested using [`run_on_main_thread`](TaskContext::run_on_main_thread). You
+    /// tasks requested using [`run`](TaskContext::run). You
     /// can control which [`CoreStage`] this system executes in by specifying a custom
     /// [`tick_stage`](TasksPlugin::tick_stage) value.
     pub fn run_tasks(schedule: impl ScheduleLabel) -> impl Fn(&mut World) {
