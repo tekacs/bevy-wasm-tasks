@@ -82,6 +82,48 @@ impl TaskContext {
     ///
     /// By default this runs in the `Update` schedule; use
     /// [`MainThreadRunConfiguration`] to target a different schedule.
+    pub fn run_exclusive_with_config<Runnable, Output>(
+        &self,
+        runnable: Runnable,
+        config: MainThreadRunConfiguration,
+    ) -> impl core::future::Future<Output = Output> + Send + 'static + use<Runnable, Output>
+    where
+        Runnable: FnOnce(&mut bevy_ecs::world::World) -> Output + Send + 'static,
+        Output: Send + 'static,
+    {
+        let (output_tx, output_rx) = tokio::sync::oneshot::channel();
+        if self
+            .task_channels
+            .submit(config.schedule, move |mut ctx| {
+                let _ = output_tx.send(ctx.run_exclusive(runnable));
+            })
+            .is_err()
+        {
+            panic!("Failed to send operation to be run on main thread");
+        }
+        async move {
+            output_rx
+                .await
+                .expect("Failed to receive output from operation on main thread")
+        }
+    }
+
+    /// Runs an exclusive callback with direct mutable access to the main-thread world and awaits its output.
+    pub fn run_exclusive<Runnable, Output>(
+        &self,
+        runnable: Runnable,
+    ) -> impl core::future::Future<Output = Output> + Send + 'static + use<Runnable, Output>
+    where
+        Runnable: FnOnce(&mut bevy_ecs::world::World) -> Output + Send + 'static,
+        Output: Send + 'static,
+    {
+        self.run_exclusive_with_config(runnable, Default::default())
+    }
+
+    /// Runs a Bevy system on the main thread and awaits its output.
+    ///
+    /// By default this runs in the `Update` schedule; use
+    /// [`MainThreadRunConfiguration`] to target a different schedule.
     pub fn run_with_config<Marker, S, Output>(
         &self,
         system: S,

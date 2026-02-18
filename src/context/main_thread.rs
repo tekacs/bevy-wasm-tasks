@@ -61,6 +61,14 @@ pub struct MainThreadContext<'a> {
 }
 
 impl<'a> MainThreadContext<'a> {
+    /// Runs an exclusive callback with direct mutable access to the world.
+    pub fn run_exclusive<Output>(
+        &mut self,
+        runnable: impl FnOnce(&mut World) -> Output,
+    ) -> Output {
+        runnable(self.world)
+    }
+
     /// Runs a Bevy one-shot system with explicit system input on the main thread.
     pub fn run_with_input<In, Marker, S, Output>(
         &mut self,
