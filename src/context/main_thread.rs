@@ -79,7 +79,7 @@ impl<'a> MainThreadContext<'a> {
         In: bevy_ecs::system::SystemInput + 'static,
         S: IntoOnceSystem<In, Output, Marker>,
     {
-        system.run_once(input, self.world)
+        system.run_once(input, self.world, self.current_tick)
     }
 
     /// Runs a Bevy system directly on the main thread with no explicit generic arguments.
