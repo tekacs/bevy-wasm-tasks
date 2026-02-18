@@ -176,13 +176,12 @@ impl<'w, 's> Scheduler<'w, 's> {
                 }
                 let mut result = Some(result);
                 task_context
-                    .run(move |world: &mut World| {
+                    .run(move |mut systems: ResMut<AsyncSystems>| {
                         let result = result
                             .take()
                             .expect("scheduler completion callback should run once");
                         let completion_key = completion_key.clone();
                         let completion_system_name = completion_system_name.clone();
-                        let mut systems = world.resource_mut::<AsyncSystems>();
                         let state = systems.states.entry(completion_key).or_default();
                         state.in_flight = false;
                         match completion_run {

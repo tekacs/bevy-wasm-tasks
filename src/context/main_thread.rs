@@ -1,9 +1,10 @@
 use bevy_app::{First, Last, PostUpdate, PreUpdate, Update};
 use bevy_ecs::{
     schedule::{InternedScheduleLabel, ScheduleLabel},
-    system::{IntoSystem, System},
     world::World,
 };
+
+use crate::into_once_system::IntoOnceSystem;
 
 pub type MainThreadCallback = Box<dyn FnOnce(MainThreadContext) + Send + 'static>;
 
@@ -60,15 +61,24 @@ pub struct MainThreadContext<'a> {
 }
 
 impl<'a> MainThreadContext<'a> {
+    /// Runs a Bevy one-shot system with explicit system input on the main thread.
+    pub fn run_with_input<In, Marker, S, Output>(
+        &mut self,
+        input: In::Inner<'static>,
+        system: S,
+    ) -> Output
+    where
+        In: bevy_ecs::system::SystemInput + 'static,
+        S: IntoOnceSystem<In, Output, Marker>,
+    {
+        system.run_once(input, self.world)
+    }
+
     /// Runs a Bevy system directly on the main thread with no explicit generic arguments.
     pub fn run<Marker, S, Output>(&mut self, system: S) -> Output
     where
-        S: IntoSystem<(), Output, Marker>,
+        S: IntoOnceSystem<(), Output, Marker>,
     {
-        let mut system = IntoSystem::into_system(system);
-        system.initialize(self.world);
-        system
-            .run((), self.world)
-            .expect("Failed to run system on main thread")
+        self.run_with_input::<(), Marker, _, _>((), system)
     }
 }

@@ -108,6 +108,7 @@ dependencies = [
  "flume",
  "futures-util",
  "tokio",
+ "variadics_please",
  "wasm-bindgen-futures",
 ]
 

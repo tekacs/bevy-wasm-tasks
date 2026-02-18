@@ -13,11 +13,13 @@ use ticks::{TicksPlugin, UpdateTicks};
 
 pub use context::main_thread::MainThreadRunConfiguration;
 pub use context::task::TaskContext;
+pub use into_once_system::IntoOnceSystem;
 pub use join::JoinHandle;
 pub use runtime::Runtime;
 pub use scheduler::{Run, Scheduler};
 
 pub mod context;
+pub mod into_once_system;
 pub mod join;
 pub mod runtime;
 pub mod scheduler;

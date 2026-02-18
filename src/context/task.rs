@@ -1,6 +1,7 @@
 use super::main_thread::{MainThreadContext, MainThreadRunConfiguration};
+use crate::into_once_system::IntoOnceSystem;
 use crate::task_channels::TaskChannels;
-use bevy_ecs::{resource::Resource, system::IntoSystem};
+use bevy_ecs::{resource::Resource, system::SystemInput};
 use flume::Receiver;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -87,14 +88,33 @@ impl TaskContext {
         config: MainThreadRunConfiguration,
     ) -> impl core::future::Future<Output = Output> + Send + 'static + use<Marker, S, Output>
     where
-        S: IntoSystem<(), Output, Marker> + Send + 'static,
+        S: IntoOnceSystem<(), Output, Marker> + Send + 'static,
+        Output: Send + 'static,
+    {
+        self.run_with_input_and_config::<(), Marker, _, _>((), system, config)
+    }
+
+    /// Runs a Bevy system on the main thread with explicit system input and awaits its output.
+    ///
+    /// By default this runs in the `Update` schedule; use
+    /// [`MainThreadRunConfiguration`] to target a different schedule.
+    pub fn run_with_input_and_config<In, Marker, S, Output>(
+        &self,
+        input: In::Inner<'static>,
+        system: S,
+        config: MainThreadRunConfiguration,
+    ) -> impl core::future::Future<Output = Output> + Send + 'static + use<In, Marker, S, Output>
+    where
+        In: SystemInput + 'static,
+        In::Inner<'static>: Send + 'static,
+        S: IntoOnceSystem<In, Output, Marker> + Send + 'static,
         Output: Send + 'static,
     {
         let (output_tx, output_rx) = tokio::sync::oneshot::channel();
         if self
             .task_channels
             .submit(config.schedule, move |mut ctx| {
-                let _ = output_tx.send(ctx.run(system));
+                let _ = output_tx.send(ctx.run_with_input::<In, Marker, _, _>(input, system));
             })
             .is_err()
         {
@@ -113,9 +133,24 @@ impl TaskContext {
         system: S,
     ) -> impl core::future::Future<Output = Output> + Send + 'static + use<Marker, S, Output>
     where
-        S: IntoSystem<(), Output, Marker> + Send + 'static,
+        S: IntoOnceSystem<(), Output, Marker> + Send + 'static,
         Output: Send + 'static,
     {
         self.run_with_config(system, Default::default())
+    }
+
+    /// Runs a Bevy system on the main thread with explicit system input and awaits its output.
+    pub fn run_with_input<In, Marker, S, Output>(
+        &self,
+        input: In::Inner<'static>,
+        system: S,
+    ) -> impl core::future::Future<Output = Output> + Send + 'static + use<In, Marker, S, Output>
+    where
+        In: SystemInput + 'static,
+        In::Inner<'static>: Send + 'static,
+        S: IntoOnceSystem<In, Output, Marker> + Send + 'static,
+        Output: Send + 'static,
+    {
+        self.run_with_input_and_config::<In, Marker, _, _>(input, system, Default::default())
     }
 }
