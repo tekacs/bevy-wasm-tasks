@@ -1,4 +1,4 @@
-use crate::{TaskContext, Tasks};
+use crate::{TaskContext, Tasks, into_async_system::IntoAsyncSystem};
 use bevy_ecs::{
     error::BevyError,
     prelude::World,
@@ -8,7 +8,6 @@ use futures_util::FutureExt;
 use std::{
     any::{Any, TypeId},
     collections::HashMap,
-    future::Future,
     panic::AssertUnwindSafe,
     time::{Duration, Instant},
 };
@@ -72,15 +71,14 @@ pub struct Scheduler<'w, 's> {
 }
 
 impl<'w, 's> Scheduler<'w, 's> {
-    pub fn async_system<P, F, Fut>(
+    pub fn async_system<Marker, F>(
         &mut self,
         run: Run,
         f: F,
     ) -> bevy_ecs::error::Result<(), BevyError>
     where
-        P: SystemParam + 'static,
-        for<'pw, 'ps> F: FnOnce(TaskContext, P::Item<'pw, 'ps>) -> Fut + Send + 'static,
-        Fut: Future<Output = bevy_ecs::error::Result<(), BevyError>> + Send + 'static,
+        F: IntoAsyncSystem<Marker>,
+        Marker: 'static,
     {
         let key = AsyncSystemKey {
             system_name: self.system_name.name().to_string(),
@@ -143,16 +141,8 @@ impl<'w, 's> Scheduler<'w, 's> {
         }
 
         self.commands.queue(move |world: &mut World| {
-            let user_future = {
-                let mut state = SystemState::<P>::new(world);
-                let fut = {
-                    let ctx = world.resource::<TaskContext>().clone();
-                    let params = state.get_mut(world);
-                    f(ctx, params)
-                };
-                state.apply(world);
-                fut
-            };
+            let ctx = world.resource::<TaskContext>().clone();
+            let user_future = f.into_future(ctx, world);
 
             let completion_key = key;
             let completion_system_name = completion_key.system_name.clone();
