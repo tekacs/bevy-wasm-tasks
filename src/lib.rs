@@ -188,6 +188,22 @@ impl Default for TasksPlugin {
 }
 
 impl TasksPlugin {
+    /// Create a `TasksPlugin` that reuses an existing tokio [`Runtime`] instead
+    /// of creating a new one.
+    ///
+    /// This is important when the Bevy app runs inside a `tokio::spawn` on
+    /// another runtime: if the plugin created its own runtime, dropping the
+    /// Bevy `World` (which happens on that async thread) would trigger
+    /// "Cannot drop a runtime in a context where blocking is not allowed."
+    /// Sharing an `Arc` avoids that — the inner runtime is only dropped when
+    /// the last `Arc` reference goes away.
+    #[cfg(feature = "tokio")]
+    pub fn with_runtime(runtime: std::sync::Arc<tokio::runtime::Runtime>) -> Self {
+        let mut plugin = Self::default();
+        plugin.make_runtime = Box::new(move || Runtime(runtime.clone()));
+        plugin
+    }
+
     /// The Bevy exclusive system which executes the main thread callbacks that background
     /// tasks requested using [`run`](TaskContext::run). You
     /// can control which [`CoreStage`] this system executes in by specifying a custom
