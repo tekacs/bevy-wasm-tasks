@@ -8,6 +8,8 @@ use futures_util::FutureExt;
 use std::{
     any::{Any, TypeId},
     collections::HashMap,
+    error::Error,
+    fmt::{Display, Formatter},
     panic::AssertUnwindSafe,
     time::{Duration, Instant},
 };
@@ -71,6 +73,9 @@ pub struct Scheduler<'w, 's> {
 }
 
 impl<'w, 's> Scheduler<'w, 's> {
+    /// Schedule one asynchronous system without letting a panic strand its run state.
+    /// Daemon panics are logged and restarted; every other mode returns the panic as a
+    /// [`BevyError`] from the next call at this callsite.
     pub fn async_system<Marker, F>(
         &mut self,
         run: Run,
@@ -142,59 +147,35 @@ impl<'w, 's> Scheduler<'w, 's> {
 
         self.commands.queue(move |world: &mut World| {
             let ctx = world.resource::<TaskContext>().clone();
-            let user_future = f.into_future(ctx, world);
-
-            let completion_key = key;
-            let completion_system_name = completion_key.system_name.clone();
-            let completion_run = run;
+            let user_future = match std::panic::catch_unwind(AssertUnwindSafe(|| {
+                f.into_future(ctx, world)
+            })) {
+                Ok(future) => future,
+                Err(payload) => {
+                    complete_task(
+                        &mut world.resource_mut::<AsyncSystems>(),
+                        key,
+                        run,
+                        TaskCompletion::Panicked(payload_to_string(payload)),
+                    );
+                    return;
+                }
+            };
 
             let mut state = SystemState::<Tasks>::new(world);
             let tasks = state.get(world);
             let task_context = tasks.task_context();
             let _handle = tasks.spawn_auto(move |_| async move {
-                let daemon_mode = matches!(completion_run, Run::Daemon);
-                let result = if daemon_mode {
-                    match AssertUnwindSafe(user_future).catch_unwind().await {
-                        Ok(result) => Ok(result),
-                        Err(payload) => Err(DaemonCompletion::Panicked(payload_to_string(payload))),
-                    }
-                } else {
-                    Ok(user_future.await)
+                let completion = match AssertUnwindSafe(user_future).catch_unwind().await {
+                    Ok(result) => TaskCompletion::Returned(result),
+                    Err(payload) => TaskCompletion::Panicked(payload_to_string(payload)),
                 };
-                if daemon_mode {
+                if matches!(run, Run::Daemon) {
                     task_context.sleep_updates(1).await;
                 }
-                let mut result = Some(result);
                 task_context
                     .run(move |mut systems: ResMut<AsyncSystems>| {
-                        let result = result
-                            .take()
-                            .expect("scheduler completion callback should run once");
-                        let completion_key = completion_key.clone();
-                        let completion_system_name = completion_system_name.clone();
-                        let state = systems.states.entry(completion_key).or_default();
-                        state.in_flight = false;
-                        match completion_run {
-                            Run::Daemon => match result {
-                                Ok(Ok(())) => eprintln!(
-                                    "[bevy-wasm-tasks] async daemon '{}' exited cleanly; restarting",
-                                    completion_system_name
-                                ),
-                                Ok(Err(err)) => eprintln!(
-                                    "[bevy-wasm-tasks] async daemon '{}' exited with error: {err}; restarting",
-                                    completion_system_name
-                                ),
-                                Err(DaemonCompletion::Panicked(message)) => eprintln!(
-                                    "[bevy-wasm-tasks] async daemon '{}' panicked: {}; restarting",
-                                    completion_system_name, message
-                                ),
-                            },
-                            _ => {
-                                if let Ok(Err(err)) = result {
-                                    state.last_error = Some(err);
-                                }
-                            }
-                        }
+                        complete_task(&mut systems, key, run, completion);
                     })
                     .await;
             });
@@ -214,6 +195,51 @@ fn payload_to_string(payload: Box<dyn Any + Send>) -> String {
     }
 }
 
-enum DaemonCompletion {
+enum TaskCompletion {
+    Returned(Result<(), BevyError>),
     Panicked(String),
+}
+
+#[derive(Debug)]
+struct TaskPanic {
+    system: String,
+    message: String,
+}
+
+impl Display for TaskPanic {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "async system '{}' panicked: {}", self.system, self.message)
+    }
+}
+
+impl Error for TaskPanic {}
+
+fn complete_task(
+    systems: &mut AsyncSystems,
+    key: AsyncSystemKey,
+    run: Run,
+    completion: TaskCompletion,
+) {
+    let system = key.system_name.clone();
+    let state = systems.states.entry(key).or_default();
+    state.in_flight = false;
+    match (run, completion) {
+        (Run::Daemon, TaskCompletion::Returned(Ok(()))) => eprintln!(
+            "[bevy-wasm-tasks] async daemon '{}' exited cleanly; restarting",
+            system
+        ),
+        (Run::Daemon, TaskCompletion::Returned(Err(error))) => eprintln!(
+            "[bevy-wasm-tasks] async daemon '{}' exited with error: {error}; restarting",
+            system
+        ),
+        (Run::Daemon, TaskCompletion::Panicked(message)) => eprintln!(
+            "[bevy-wasm-tasks] async daemon '{}' panicked: {message}; restarting",
+            system
+        ),
+        (_, TaskCompletion::Returned(Ok(()))) => {}
+        (_, TaskCompletion::Returned(Err(error))) => state.last_error = Some(error),
+        (_, TaskCompletion::Panicked(message)) => {
+            state.last_error = Some(TaskPanic { system, message }.into());
+        }
+    }
 }
