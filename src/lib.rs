@@ -78,8 +78,7 @@ impl<'w> Tasks<'w> {
 
         let user_future = spawnable_task(context);
         let wrapper = build::<_, Output>(user_future);
-        let handle = self.runtime.0.spawn(wrapper);
-        JoinHandle::Tokio(handle)
+        JoinHandle(self.runtime.0.spawn(wrapper))
     }
 
     #[cfg(not(feature = "tokio"))]
@@ -98,7 +97,7 @@ impl<'w> Tasks<'w> {
     /// [`TaskContext`] which allows it to do things like [sleep for a given number of main thread updates](TaskContext::sleep_updates)
     /// or [invoke callbacks on the main Bevy thread](TaskContext::run).
     #[cfg(feature = "wasm")]
-    pub fn spawn_wasm<Task, Output, Spawnable>(
+    pub fn spawn_wasm<Task, Output: 'static, Spawnable>(
         &self,
         spawnable_task: Spawnable,
     ) -> JoinHandle<Output>
@@ -106,7 +105,6 @@ impl<'w> Tasks<'w> {
         Task: Future<Output = Output> + 'static,
         Spawnable: FnOnce(TaskContext) -> Task + 'static,
     {
-        use futures_util::FutureExt;
         let context = self.task_context();
 
         #[inline(always)]
@@ -119,9 +117,7 @@ impl<'w> Tasks<'w> {
 
         let user_future = spawnable_task(context);
         let wrapper = build::<_, Output>(user_future);
-        let (wrapper, handle) = wrapper.remote_handle();
-        wasm_bindgen_futures::spawn_local(wrapper);
-        JoinHandle::RemoteHandle(Some(handle))
+        JoinHandle(xrt::spawn_local(wrapper))
     }
 
     #[cfg(not(feature = "wasm"))]
@@ -197,10 +193,10 @@ impl TasksPlugin {
     /// "Cannot drop a runtime in a context where blocking is not allowed."
     /// Sharing an `Arc` avoids that — the inner runtime is only dropped when
     /// the last `Arc` reference goes away.
-    #[cfg(feature = "tokio")]
+    #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
     pub fn with_runtime(runtime: std::sync::Arc<tokio::runtime::Runtime>) -> Self {
         let mut plugin = Self::default();
-        plugin.make_runtime = Box::new(move || Runtime(runtime.clone()));
+        plugin.make_runtime = Box::new(move || Runtime::from_tokio(runtime.clone()));
         plugin
     }
 

@@ -1,6 +1,8 @@
 # bevy-wasm-tasks
 
-A Bevy plugin which integrates the running of futures (including !Send futures) into a Bevy app.
+A Bevy plugin which integrates asynchronous tasks and systems into a Bevy app across native and browser WebAssembly targets.
+
+Task execution comes from [`cross-runtime`](https://crates.io/crates/cross-runtime): Tokio on native targets and `web-task` in browsers. `Tasks::spawn_auto` accepts portable `Send` work; `Tasks::spawn_wasm` accepts `!Send` browser work pinned to its current thread. Both return detach-on-drop handles with join, cancellation, and completion inspection.
 
 This code was originally based on [bevy-tokio-tasks](https://github.com/EkardNT/bevy-tokio-tasks), but heavily adapted.
 
@@ -23,3 +25,13 @@ Run modes:
 - `Run::OnChange { triggered }`: edge-triggered with one queued rerun.
 - `Run::Once`: execute once and never schedule again.
 - `Run::Daemon`: restart on the next tick whenever the task exits; exit/error is printed to stderr.
+
+## Browser tests
+
+Run the wasm suite inside a real headless Chrome instance through ChromeDriver:
+
+```sh
+wasm-pack test --headless --chrome -- --features wasm
+```
+
+This executes the `#[wasm_bindgen_test]` cases for Bevy task joining, detach-on-drop, and cancellation. `cargo test --target wasm32-unknown-unknown --no-run` is only a compile gate.

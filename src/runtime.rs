@@ -1,42 +1,33 @@
 use bevy_ecs::resource::Resource;
 
-#[cfg(feature = "tokio")]
+#[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
 use std::{future::Future, sync::Arc};
 
-#[cfg(feature = "tokio")]
-#[derive(Resource)]
-pub struct Runtime(pub Arc<tokio::runtime::Runtime>);
+#[cfg(any(feature = "tokio", feature = "wasm"))]
+#[derive(Resource, Default)]
+pub struct Runtime(pub xrt::Runtime);
 
-#[cfg(feature = "tokio")]
-impl Default for Runtime {
-    fn default() -> Self {
-        #[cfg(not(target_arch = "wasm32"))]
-        let mut runtime = tokio::runtime::Builder::new_multi_thread();
-        #[cfg(target_arch = "wasm32")]
-        let mut runtime = tokio::runtime::Builder::new_current_thread();
-        runtime.enable_all();
-        Self(Arc::new(runtime.build().expect(
-            "Failed to create Tokio runtime for background tasks",
-        )))
-    }
-}
-
-#[cfg(not(feature = "tokio"))]
+#[cfg(not(any(feature = "tokio", feature = "wasm")))]
 #[derive(Resource, Default)]
 pub struct Runtime;
 
 impl Runtime {
-    #[cfg(feature = "tokio")]
+    #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
+    pub fn from_tokio(runtime: Arc<tokio::runtime::Runtime>) -> Self {
+        Self(xrt::Runtime::from_tokio(runtime))
+    }
+
+    #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
     pub fn raw(&self) -> &tokio::runtime::Runtime {
-        &self.0
+        self.0.tokio()
     }
 
-    #[cfg(feature = "tokio")]
+    #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
     pub fn runtime_arc(&self) -> Arc<tokio::runtime::Runtime> {
-        self.0.clone()
+        self.0.tokio_arc()
     }
 
-    #[cfg(feature = "tokio")]
+    #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
         self.0.block_on(future)
     }
