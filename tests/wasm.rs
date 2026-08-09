@@ -15,6 +15,15 @@ fn app() -> App {
 }
 
 #[wasm_bindgen_test]
+async fn auto_task_joins() {
+    let mut app = app();
+    let mut state = SystemState::<Tasks>::new(app.world_mut());
+    let tasks = state.get(app.world());
+    let mut task = tasks.spawn_auto(|_| async { 42 });
+    assert_eq!(task.join().await, 42);
+}
+
+#[wasm_bindgen_test]
 async fn wasm_task_joins() {
     let mut app = app();
     let mut state = SystemState::<Tasks>::new(app.world_mut());
